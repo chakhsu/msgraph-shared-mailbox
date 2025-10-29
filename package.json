@@ -1,6 +1,6 @@
 {
   "name": "msgraph-shared-mailbox",
-  "version": "v1.0.0",
+  "version": "v1.1.0",
   "description": "Email Node.js library compatible with Microsoft Graph API",
   "author": "Chakhsu.Lau",
   "license": "MIT",
