@@ -64,7 +64,7 @@
     "rimraf": "^5.0.10",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
-    "tsc-esm-fix": "^2.20.27",
+    "tsc-esm-fix": "^3.1.2",
     "typescript": "^5.9.3"
   }
 }
