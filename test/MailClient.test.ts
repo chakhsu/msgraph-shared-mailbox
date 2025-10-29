@@ -10,6 +10,11 @@ const fakeClient = {
   api: (path: string) => {
     const call: any = { path }
     const chain: any = {
+      filter: (q: string) => {
+        call.filter = q
+        call.path = `${path}?$filter=${encodeURIComponent(q)}`
+        return chain
+      },
       select: (s: string) => {
         call.select = s
         return chain
@@ -17,6 +22,7 @@ const fakeClient = {
       get: async () => {
         call.method = 'GET'
         clientCalls.push(call)
+        if (responses[call.path] !== undefined) return responses[call.path]
         if (responses[path] !== undefined) return responses[path]
         return {}
       },
@@ -31,7 +37,7 @@ const fakeClient = {
           return { uploadUrl: 'https://upload.example/session' }
         }
         if (path.includes('/messages') && !path.endsWith('/attachments') && !path.endsWith('/attachments/createUploadSession')) {
-          return { id: 'MSG-1' }
+          return { id: 'MSG-1', internetMessageId: '<IM-MSG-1@exch.example.com>' }
         }
         return {}
       }
@@ -104,13 +110,17 @@ describe('MailClient', () => {
 
   test('sendMail builds recipients and text body, sends draft', async () => {
     const mc = new MailClient(options)
-    const id = await mc.sendMail({
+    const idOrObj = await mc.sendMail({
       subject: 'Subject',
       to: 'a@ex.com; b@ex.com, a@ex.com',
       text: 'Hello'
     })
 
+    const id = typeof idOrObj === 'string' ? idOrObj : idOrObj.id
     expect(id).toBe('MSG-1')
+    if (typeof idOrObj !== 'string') {
+      expect(idOrObj.internetMessageId).toBeDefined()
+    }
 
     const draftCall = clientCalls.find((c) => c.path === `/users/${sharedMailbox}/messages` && c.method === 'POST')
     expect(draftCall).toBeTruthy()
@@ -194,6 +204,23 @@ describe('MailClient', () => {
     expect(msg.id).toBe(messageId)
     const call = clientCalls.find((c) => c.path === `/users/${sharedMailbox}/messages/${messageId}` && c.method === 'GET')
     expect(call.select).toBe('id,subject')
+  })
+
+  test('getMailById supports internetMessageId with attachments', async () => {
+    const mc = new MailClient(options)
+    const internetId = '<IM-123@exch.example.com>'
+    const filter = `internetMessageId eq '${internetId}'`
+    const listPath = `/users/${sharedMailbox}/messages?$filter=${encodeURIComponent(filter)}`
+    responses[listPath] = { value: [{ id: 'M-789', subject: 'S', internetMessageId: internetId }] }
+    responses[`/users/${sharedMailbox}/messages/M-789/attachments`] = { value: [{ id: 'A1', name: 'f.txt' }] }
+
+    const msg = await mc.getMailById(internetId, { includeAttachments: true })
+    expect(msg.id).toBe('M-789')
+    expect(msg.internetMessageId).toBe(internetId)
+    expect(msg.attachments).toEqual([{ id: 'A1', name: 'f.txt' }])
+
+    const listCall = clientCalls.find((c) => c.path === listPath && c.method === 'GET')
+    expect(listCall).toBeTruthy()
   })
 
   test('rejects path attachment larger than 150MB', async () => {
