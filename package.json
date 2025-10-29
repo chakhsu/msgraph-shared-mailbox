@@ -1,7 +1,7 @@
 {
-  "name": "tsm-template",
-  "version": "v0.0.3",
-  "description": "A typescript module template",
+  "name": "msgraph-shared-mailbox",
+  "version": "v1.0.0",
+  "description": "Email Node.js library compatible with Microsoft Graph API",
   "author": "Chakhsu.Lau",
   "license": "MIT",
   "keywords": [
@@ -13,11 +13,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/chakhsu/tsm-template"
+    "url": "https://github.com/chakhsu/msgraph-shared-mailbox"
   },
-  "homepage": "https://github.com/chakhsu/tsm-template",
+  "homepage": "https://github.com/chakhsu/msgraph-shared-mailbox",
   "bugs": {
-    "url": "https://github.com/chakhsu/tsm-template/issues"
+    "url": "https://github.com/chakhsu/msgraph-shared-mailbox/issues"
   },
   "exports": {
     ".": {
@@ -49,6 +49,10 @@
   },
   "lint-staged": {
     "*.{ts,js,md,json,yaml}": "prettier --write"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.13.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

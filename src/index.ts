@@ -1,5 +1,2 @@
-import { HelloString } from './string'
-
-export const hello = () => {
-  return HelloString
-}
+export * from './config'
+export * from './MailClient'
