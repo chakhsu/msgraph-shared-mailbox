@@ -117,6 +117,22 @@ const message = await mailClient.getMailById('<MESSAGE_ID>', {
 })
 ```
 
+也支持通过 Internet Message ID（RFC822 `internetMessageId`，通常带尖括号，如 `'<...@...>'`）进行查询：
+
+```ts
+// 方式一：自动识别（当形如 <...@...> 时自动按 internetMessageId 查询）
+const msg1 = await mailClient.getMailById('<xxx@xxx.prod.exchangelabs.com>', {
+  includeAttachments: true
+})
+
+// 方式二：显式指定 idType
+const msg2 = await mailClient.getMailById('<xxx@xxx.prod.exchangelabs.com>', {
+  idType: 'internetMessageId',
+  includeAttachments: true,
+  select: ['id', 'subject']
+})
+```
+
 ## API
 
 ### MailClient(options: CredentialOptions)
@@ -154,6 +170,13 @@ const mc = MailClient.getInstance({
 ### sendMail(mail: MailOptions): Promise<string>
 
 发送邮件并返回新邮件的 ID。
+
+返回值说明：
+
+- 返回 Graph 邮件 `id`（字符串）和 `internetMessageId`（字符串）。
+- 过程：先创建草稿（`POST /users/{mailbox}/messages`），上传附件后再发送（`POST /users/{mailbox}/messages/{id}/send`）；返回的 `id` 为已发送邮件的 ID。
+- 用法：可用该 `id` 配合 `getMailById(id, { includeAttachments: true })` 获取邮件详情或附件列表。
+- 若需 RFC822 `internetMessageId`：查询已发送邮件以读取该字段，或后续用 `getMailById('<...@...>', { idType: 'internetMessageId' })` 进行查询。
 
 `MailOptions`：
 

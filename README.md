@@ -117,6 +117,22 @@ const message = await mailClient.getMailById('<MESSAGE_ID>', {
 })
 ```
 
+You can also fetch by the RFC822 Internet Message ID (`internetMessageId`), which typically includes angle brackets like `'<...@...>'`:
+
+```ts
+// Option A: auto-detection when the ID looks like <...@...>
+const msg1 = await mailClient.getMailById('<xxx@xxx.prod.exchangelabs.com>', {
+  includeAttachments: true
+})
+
+// Option B: explicitly specify idType
+const msg2 = await mailClient.getMailById('<xxx@xxx.prod.exchangelabs.com>', {
+  idType: 'internetMessageId',
+  includeAttachments: true,
+  select: ['id', 'subject']
+})
+```
+
 ## API
 
 ### MailClient(options: CredentialOptions)
@@ -154,6 +170,13 @@ Notes:
 ### sendMail(mail: MailOptions): Promise<string>
 
 Sends and returns the new message ID.
+
+Return value details:
+
+- Returns the Graph message `id` as a `string` and `internetMessageId` as a `string`.
+- Implementation: creates a draft (`POST /users/{mailbox}/messages`), uploads attachments, then sends (`POST /users/{mailbox}/messages/{id}/send`). The returned `id` is the sent message ID.
+- Use this `id` with `getMailById(id, { includeAttachments: true })` to retrieve message details or attachments.
+- If you need the RFC822 `internetMessageId`, query the message and read `internetMessageId`, or later fetch by it using `getMailById('<...@...>', { idType: 'internetMessageId' })`.
 
 `MailOptions`:
 

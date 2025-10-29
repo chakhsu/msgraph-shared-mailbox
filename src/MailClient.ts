@@ -38,6 +38,9 @@ export type MailOptions = {
 export type getMailByIdOptions = {
   select: string[]
   includeAttachments?: boolean
+  // 可选：明确指定传入的 id 类型
+  // 'graph' 表示 Graph 消息 ID；'internetMessageId' 表示 RFC822 Internet Message ID（通常带尖括号）
+  idType?: 'graph' | 'internetMessageId'
 }
 
 export class MailClient {
@@ -120,7 +123,10 @@ export class MailClient {
       // 正式发送邮件
       await this.client.api(`/users/${this.sharedMailbox}/messages/${draft.id}/send`).post({})
 
-      return draft.id
+      return {
+        id: draft.id,
+        internetMessageId: draft.internetMessageId
+      }
     } catch (error) {
       this.logger.error('Failed to send mail', error)
       throw error
@@ -483,9 +489,9 @@ export class MailClient {
     await fd.close()
   }
 
-  // 根据邮件ID查询邮件
+  // 根据邮件ID查询邮件（支持 Graph ID 或 Internet Message ID）
   async getMailById(id: string, options: Partial<getMailByIdOptions> = {}) {
-    const { select, includeAttachments = false } = options
+    const { select, includeAttachments = false, idType } = options
 
     if (!id) {
       throw new Error('id is required')
@@ -494,6 +500,29 @@ export class MailClient {
     const selectFields =
       Array.isArray(select) && select.length > 0 ? select.join(',') : 'id,subject,bodyPreview,body,sentDateTime,receivedDateTime,from,toRecipients,ccRecipients,bccRecipients,hasAttachments'
 
+    // 判断是否为 Internet Message ID（通常形如 <...@...>）或显式指定 idType
+    const looksLikeInternetId = /^<[^>]+@[^>]+>$/.test(id)
+    const useInternetMessageId = idType === 'internetMessageId' || looksLikeInternetId
+
+    if (useInternetMessageId) {
+      // 通过 OData $filter 使用 internetMessageId 精确匹配
+      const filterValue = id.replace(/'/g, "''")
+      const list: any = await this.client.api(`/users/${this.sharedMailbox}/messages`).filter(`internetMessageId eq '${filterValue}'`).select(selectFields).get()
+
+      const message = list?.value?.[0]
+      if (!message) {
+        throw new Error('Message not found by internetMessageId')
+      }
+
+      if (includeAttachments) {
+        const attRes = await this.client.api(`/users/${this.sharedMailbox}/messages/${message.id}/attachments`).get()
+        message.attachments = attRes.value || []
+      }
+
+      return message
+    }
+
+    // 默认按 Graph 消息 ID 查询
     const message = await this.client.api(`/users/${this.sharedMailbox}/messages/${id}`).select(selectFields).get()
 
     if (includeAttachments) {
