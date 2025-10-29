@@ -44,7 +44,7 @@ const mailClient = new MailClient({
   clientId: process.env.CLIENT_ID!,
   clientSecret: process.env.CLIENT_SECRET!,
   sharedMailbox: process.env.SHARED_MAILBOX!,
-  // Large upload settings (required; defaults shown)
+  // Large upload settings (defaults shown)
   attachmentUploadOptions: {
     largeFileThreshold: 3 * 1024 * 1024, // 3MB
     chunkSize: 320 * 1024 // 320KB (must be 320KB multiple)
@@ -143,7 +143,7 @@ Options:
 - `clientId`: App registration (client) ID.
 - `clientSecret`: Client secret for the app.
 - `sharedMailbox`: Shared mailbox email address.
-- `attachmentUploadOptions?`:
+- `attachmentUploadOptions?`: (optional) Large upload settings.
   - `largeFileThreshold?`: number (default 3MB).
   - `chunkSize?`: number (default 320KB, must be 320KB multiple).
 - `logger?`: `{ error?: (...args: any[]) => void }` (optional).

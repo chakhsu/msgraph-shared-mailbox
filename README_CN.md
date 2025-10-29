@@ -44,7 +44,7 @@ const mailClient = new MailClient({
   clientId: process.env.CLIENT_ID!,
   clientSecret: process.env.CLIENT_SECRET!,
   sharedMailbox: process.env.SHARED_MAILBOX!,
-  // 大附件上传设置（必填；以下为默认值）
+  // 大附件上传设置（以下为默认值）
   attachmentUploadOptions: {
     largeFileThreshold: 3 * 1024 * 1024, // 3MB
     chunkSize: 320 * 1024 // 320KB（必须是 320KB 的倍数）
@@ -143,7 +143,7 @@ const msg2 = await mailClient.getMailById('<xxx@xxx.prod.exchangelabs.com>', {
 - `clientId`：应用（客户端）ID。
 - `clientSecret`：应用客户端机密。
 - `sharedMailbox`：共享邮箱地址。
-- `attachmentUploadOptions`：
+- `attachmentUploadOptions`：可选，大附件上传配置。
   - `largeFileThreshold`：数字（默认 3MB）。
   - `chunkSize`：数字（默认 320KB，必须为 320KB 倍数）。
 - `logger?`：可选，形如 `{ error?: (...args: any[]) => void }`。
