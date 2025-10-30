@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { Readable } from 'node:stream'
 import path from 'node:path'
 
 import { ClientSecretCredential } from '@azure/identity'
-import { Client } from '@microsoft/microsoft-graph-client'
+import { Client, LargeFileUploadTask, StreamUpload, FileUpload } from '@microsoft/microsoft-graph-client'
 
 import { getContentTypeFromFileName } from './utils'
 import type { CredentialOptions, AttachmentUploadOptions, Logger } from './config'
@@ -283,7 +285,7 @@ export class MailClient {
       return
     }
 
-    // 直接使用 fetch 流分块上传（若 Content-Length 已知则边下边传；未知则暂存内存后上传）
+    // 拉取远程内容
     const res = await fetch(href)
     if (!res.ok || !res.body) return
     const contentLengthHeader = res.headers.get('content-length')
@@ -303,9 +305,9 @@ export class MailClient {
       chunkSize = Math.max(base, Math.floor(chunkSize / base) * base)
     }
 
-    // 如果已知总大小，创建会话并边下边传
+    // 如果已知总大小并超过阈值：创建上传会话，使用 StreamUpload 直接边下边传
     if (size !== undefined && size > this.attachmentUploadOptions.largeFileThreshold) {
-      const sessionBody: any = {
+      const payload = {
         AttachmentItem: {
           attachmentType: 'file',
           name: fileName,
@@ -313,61 +315,19 @@ export class MailClient {
           contentType: contentType
         }
       }
-      const session = await this.client.api(`/users/${this.sharedMailbox}/messages/${messageId}/attachments/createUploadSession`).post(sessionBody)
-      const uploadUrl = session.uploadUrl
+      const uploadSession = await LargeFileUploadTask.createUploadSession(this.client, `/users/${this.sharedMailbox}/messages/${messageId}/attachments/createUploadSession`, payload)
 
-      const stream = res.body as any
-      const reader = stream.getReader()
-      let offset = 0
-      let pending = Buffer.alloc(0)
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunkBuf = Buffer.from(value)
-        pending = pending.length === 0 ? chunkBuf : Buffer.concat([pending, chunkBuf])
-        while (pending.length >= chunkSize) {
-          const toSend = pending.subarray(0, chunkSize)
-          const start = offset
-          const end = start + toSend.length - 1
-          const resp = await fetch(uploadUrl, {
-            method: 'PUT',
-            headers: {
-              'Content-Length': `${toSend.length}`,
-              'Content-Range': `bytes ${start}-${end}/${size}`,
-              'Content-Type': 'application/octet-stream'
-            },
-            body: toSend
-          })
-          if (!resp.ok && resp.status !== 202 && resp.status !== 201 && resp.status !== 200) {
-            throw new Error(`Upload chunk failed with status ${resp.status}`)
-          }
-          offset += toSend.length
-          pending = pending.subarray(toSend.length)
-        }
-      }
-      // 发送剩余部分作为最后一块
-      if (pending.length > 0) {
-        const start = offset
-        const end = size - 1
-        const resp = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Length': `${pending.length}`,
-            'Content-Range': `bytes ${start}-${end}/${size}`,
-            'Content-Type': 'application/octet-stream'
-          },
-          body: pending
-        })
-        if (!resp.ok && resp.status !== 202 && resp.status !== 201 && resp.status !== 200) {
-          throw new Error(`Upload final chunk failed with status ${resp.status}`)
-        }
-      }
+      // 将 WHATWG ReadableStream 转为 Node.js Readable 供 StreamUpload 使用
+      const nodeStream = Readable.fromWeb(res.body as any)
+      const fileObject = new StreamUpload(nodeStream as any, fileName, size)
+      const options = { rangeSize: chunkSize }
+      const uploadTask = new LargeFileUploadTask(this.client, fileObject as any, uploadSession, options)
+      await uploadTask.upload()
       return
     }
 
     // 未知总大小或小于阈值：下载至内存后按大小选择上传方式（不落地文件）
-    const stream = res.body as any
-    const reader = stream.getReader()
+    const reader = (res.body as any).getReader()
     const buffers: Buffer[] = []
     let total = 0
     while (true) {
@@ -406,36 +366,20 @@ export class MailClient {
       throw new Error('Attachment size exceeds maximum 150MB')
     }
 
-    const session = await this.client.api(`/users/${this.sharedMailbox}/messages/${messageId}/attachments/createUploadSession`).post({
+    const payload = {
       AttachmentItem: {
         attachmentType: 'file',
         name: fileName,
         size: content.length,
         contentType: contentType
       }
-    })
-
-    const uploadUrl = session.uploadUrl
-    let offset = 0
-    while (offset < content.length) {
-      const endExclusive = Math.min(offset + chunkSize, content.length)
-      const chunk = content.subarray(offset, endExclusive)
-      const start = offset
-      const end = endExclusive - 1
-      const res = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Length': `${chunk.length}`,
-          'Content-Range': `bytes ${start}-${end}/${content.length}`,
-          'Content-Type': 'application/octet-stream'
-        },
-        body: chunk
-      })
-      if (!res.ok && res.status !== 202 && res.status !== 201 && res.status !== 200) {
-        throw new Error(`Upload chunk failed with status ${res.status}`)
-      }
-      offset = endExclusive
     }
+    const uploadSession = await LargeFileUploadTask.createUploadSession(this.client, `/users/${this.sharedMailbox}/messages/${messageId}/attachments/createUploadSession`, payload)
+
+    const fileObject = new FileUpload(content as any, fileName, content.length)
+    const options = { rangeSize: chunkSize }
+    const uploadTask = new LargeFileUploadTask(this.client, fileObject as any, uploadSession, options)
+    await uploadTask.upload()
   }
 
   private async uploadLargeFileByPath(messageId: string, fileName: string, filePath: string, contentType: string, fileSize: number) {
@@ -450,43 +394,21 @@ export class MailClient {
       throw new Error('Attachment size exceeds maximum 150MB')
     }
 
-    const session = await this.client.api(`/users/${this.sharedMailbox}/messages/${messageId}/attachments/createUploadSession`).post({
+    const payload = {
       AttachmentItem: {
         attachmentType: 'file',
         name: fileName,
         size: fileSize,
         contentType: contentType
       }
-    })
-
-    const uploadUrl = session.uploadUrl
-
-    const fd = await fs.open(filePath, 'r')
-    const fileStream = fd.createReadStream({ highWaterMark: chunkSize })
-
-    let offset = 0
-    for await (const chunk of fileStream) {
-      const chunkData = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any)
-      const start = offset
-      const end = start + chunkData.length - 1
-      const res = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Length': `${chunkData.length}`,
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Content-Type': 'application/octet-stream'
-        },
-        body: chunkData
-      })
-      // 中间分块通常返回 202，最后一块返回 201
-      if (!res.ok && res.status !== 202 && res.status !== 201 && res.status !== 200) {
-        throw new Error(`Upload chunk failed with status ${res.status}`)
-      }
-      offset += chunkData.length
     }
-    // 关闭流与文件句柄
-    fileStream.close()
-    await fd.close()
+    const uploadSession = await LargeFileUploadTask.createUploadSession(this.client, `/users/${this.sharedMailbox}/messages/${messageId}/attachments/createUploadSession`, payload)
+
+    const stream = createReadStream(filePath)
+    const fileObject = new StreamUpload(stream as any, fileName, fileSize)
+    const options = { rangeSize: chunkSize }
+    const uploadTask = new LargeFileUploadTask(this.client, fileObject as any, uploadSession, options)
+    await uploadTask.upload()
   }
 
   // 根据邮件ID查询邮件（支持 Graph ID 或 Internet Message ID）
